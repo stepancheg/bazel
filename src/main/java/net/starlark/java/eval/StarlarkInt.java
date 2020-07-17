@@ -73,6 +73,18 @@ public abstract class StarlarkInt implements StarlarkValue, Comparable<StarlarkI
     return new Big(x);
   }
 
+  public static StarlarkInt of(Number x) {
+    if (x instanceof Integer) {
+      return of(x.intValue());
+    } else if (x instanceof Long) {
+      return of(x.longValue());
+    } else if (x instanceof BigInteger) {
+      return of((BigInteger) x);
+    } else {
+      throw new IllegalArgumentException("Unknown integer type: " + x.getClass().getName());
+    }
+  }
+
   /**
    * Returns the StarlarkInt value that most closely approximates x.
    *

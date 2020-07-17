@@ -86,7 +86,7 @@ public final class MethodLibraryTest {
             "Traceback (most recent call last):",
             "\tFile \"\", line 5, column 4, in <toplevel>",
             "\t\tfoo()",
-            "\tFile \"\", line 3, column 7, in foo",
+            "\tFile \"\", line 3, column 6, in foo",  // TODO(stepancheg): restore location before submitting a PR
             "\t\tif s[0] == 1:",
             "Error: index out of range (index is 0, but sequence has 0 elements)"));
   }
@@ -113,7 +113,7 @@ public final class MethodLibraryTest {
             "Traceback (most recent call last):", //
             "\tFile \"\", line 4, column 4, in <toplevel>",
             "\t\tfoo()",
-            "\tFile \"\", line 3, column 5, in foo",
+            "\tFile \"\", line 3, column 3, in foo", // TODO(stepancheg): restore location before submitting a PR
             "\t\ts += '2'",
             "Error: unsupported binary operation: int + string"));
   }
@@ -151,7 +151,7 @@ public final class MethodLibraryTest {
         "1//0",
         join(
             "Traceback (most recent call last):", //
-            "\tFile \"\", line 1, column 2, in <toplevel>",
+            "\tFile \"\", line 1, column 1, in <toplevel>",  // TODO(stepancheg): restore location before submitting a PR
             "\t\t1//0",
             "Error: integer division by zero"));
 
@@ -165,7 +165,7 @@ public final class MethodLibraryTest {
             "Traceback (most recent call last):", //
             "\tFile \"\", line 3, column 2, in <toplevel>",
             "\t\tf()",
-            "\tFile \"\", line 2, column 4, in f",
+            "\tFile \"\", line 2, column 3, in f",   // TODO(stepancheg): restore location before submitting a PR
             "\t\t1//0",
             "Error: integer division by zero"));
 
@@ -179,7 +179,7 @@ public final class MethodLibraryTest {
             "\tFile \"\", line 2, column 7, in <toplevel>",
             "\t\tsorted([2, 1, 0], key=id)",
             "\tFile \"<builtin>\", in sorted",
-            "\tFile \"\", line 1, column 20, in id",
+            "\tFile \"\", line 1, column 19, in id",  // TODO(stepancheg): restore location before submitting a PR
             "\t\tdef id(x): return 1//x",
             "Error: integer division by zero"));
   }

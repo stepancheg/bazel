@@ -14,6 +14,7 @@ filegroup(
 java_library(
     name = "eval",
     srcs = [
+        "BcEval.java",
         "BuiltinFunction.java",
         "CallUtils.java",
         "CpuProfiler.java",

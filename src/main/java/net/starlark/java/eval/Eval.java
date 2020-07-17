@@ -66,7 +66,7 @@ final class Eval {
     return fr.result;
   }
 
-  private static StarlarkFunction fn(StarlarkThread.Frame fr) {
+  static StarlarkFunction fn(StarlarkThread.Frame fr) {
     return (StarlarkFunction) fr.fn;
   }
 
@@ -244,7 +244,7 @@ final class Eval {
     return TokenKind.RETURN;
   }
 
-  private static TokenKind exec(StarlarkThread.Frame fr, Statement st)
+  static TokenKind exec(StarlarkThread.Frame fr, Statement st)
       throws EvalException, InterruptedException {
     if (fr.dbg != null) {
       Location loc = st.getStartLocation(); // not very precise
@@ -345,16 +345,20 @@ final class Eval {
         fr.locals.put(name, value);
         break;
       case GLOBAL:
-        // Updates a module binding and sets its 'exported' flag.
-        // (Only load bindings are not exported.
-        // But exportedGlobals does at run time what should be done in the resolver.)
-        Module module = fn(fr).getModule();
-        module.setGlobal(name, value);
-        module.exportedGlobals.add(name);
+        assignGlobal(fr, name, value);
         break;
       default:
         throw new IllegalStateException(scope.toString());
     }
+  }
+
+  static void assignGlobal(StarlarkThread.Frame fr, String name, Object value) {
+    // Updates a module binding and sets its 'exported' flag.
+    // (Only load bindings are not exported.
+    // But exportedGlobals does at run time what should be done in the resolver.)
+    Module module = fn(fr).getModule();
+    module.setGlobal(name, value);
+    module.exportedGlobals.add(name);
   }
 
   /**
@@ -421,7 +425,7 @@ final class Eval {
     }
   }
 
-  private static Object inplaceBinaryOp(StarlarkThread.Frame fr, TokenKind op, Object x, Object y)
+  static Object inplaceBinaryOp(StarlarkThread.Frame fr, TokenKind op, Object x, Object y)
       throws EvalException {
     // list += iterable  behaves like  list.extend(iterable)
     // TODO(b/141263526): following Python, allow list+=iterable (but not list+iterable).
@@ -467,13 +471,7 @@ final class Eval {
         // the StarlarkInt in the IntLiteral (a temporary hack
         // until we use a compiled representation).
         Number n = ((IntLiteral) expr).getValue();
-        if (n instanceof Integer) {
-          return StarlarkInt.of((Integer) n);
-        } else if (n instanceof Long) {
-          return StarlarkInt.of((Long) n);
-        } else {
-          return StarlarkInt.of((BigInteger) n);
-        }
+        return StarlarkInt.of(n);
       case FLOAT_LITERAL:
         return StarlarkFloat.of(((FloatLiteral) expr).getValue());
       case LIST_EXPR:
