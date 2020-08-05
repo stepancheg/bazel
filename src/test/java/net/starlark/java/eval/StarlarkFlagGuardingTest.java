@@ -150,7 +150,7 @@ public final class StarlarkFlagGuardingTest {
         .testIfErrorContains(
             "in call to positionals_only_method(), parameter 'b' got value of type 'int', want"
                 + " 'bool'",
-            "mock.positionals_only_method(1, 3)");
+            "mock.positionals_only_method(1, 3, 4)");
 
     ev.new Scenario(FLAG1_FALSE)
         .update("mock", new Mock())
@@ -159,8 +159,7 @@ public final class StarlarkFlagGuardingTest {
     ev.new Scenario(FLAG1_FALSE)
         .update("mock", new Mock())
         .testIfErrorContains(
-            "in call to positionals_only_method(), parameter 'c' got value of type 'bool', want"
-                + " 'int'",
+            "positionals_only_method() accepts no more than 2 positional arguments but got 3",
             "mock.positionals_only_method(1, True, 3)");
   }
 

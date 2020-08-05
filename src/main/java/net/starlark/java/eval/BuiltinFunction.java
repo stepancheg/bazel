@@ -13,10 +13,9 @@
 // limitations under the License.
 package net.starlark.java.eval;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import java.util.ArrayList;
+
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -181,7 +180,7 @@ public final class BuiltinFunction implements StarlarkCallable {
       }
 
       Object value = positional[argIndex++];
-      checkParamValue(param, value);
+
       vector[paramIndex] = value;
     }
 
@@ -263,54 +262,12 @@ public final class BuiltinFunction implements StarlarkCallable {
         continue;
       }
 
-      checkParamValue(param, value);
-
       // duplicate?
       if (vector[index] != null) {
         throw Starlark.errorf("%s() got multiple values for argument '%s'", methodName, name);
       }
 
       vector[index] = value;
-    }
-
-    // Set default values for missing parameters,
-    // and report any that are still missing.
-    List<String> missingPositional = null;
-    List<String> missingNamed = null;
-    for (int i = 0; i < parameters.length; i++) {
-      if (vector[i] == null) {
-        ParamDescriptor param = parameters[i];
-        vector[i] = param.getDefaultValue();
-        if (vector[i] == null) {
-          if (param.isPositional()) {
-            if (missingPositional == null) {
-              missingPositional = new ArrayList<>();
-            }
-            missingPositional.add(param.getName());
-          } else {
-            if (missingNamed == null) {
-              missingNamed = new ArrayList<>();
-            }
-            missingNamed.add(param.getName());
-          }
-        }
-      }
-    }
-    if (missingPositional != null) {
-      throw Starlark.errorf(
-          "%s() missing %d required positional argument%s: %s",
-          methodName,
-          missingPositional.size(),
-          plural(missingPositional.size()),
-          Joiner.on(", ").join(missingPositional));
-    }
-    if (missingNamed != null) {
-      throw Starlark.errorf(
-          "%s() missing %d required named argument%s: %s",
-          methodName,
-          missingNamed.size(),
-          plural(missingNamed.size()),
-          Joiner.on(", ").join(missingNamed));
     }
 
     // special parameters

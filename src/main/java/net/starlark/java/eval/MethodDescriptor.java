@@ -14,14 +14,18 @@
 
 package net.starlark.java.eval;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.invoke.WrongMethodTypeException;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
 import javax.annotation.Nullable;
+import java.util.List;
+import java.util.stream.IntStream;
 import net.starlark.java.annot.Param;
 import net.starlark.java.annot.StarlarkMethod;
 
@@ -113,6 +117,10 @@ final class MethodDescriptor {
 
       // mh: (self, StarlarkThread, args...) -> ?
 
+      mh = processArguments(mh, this.parameters, 2);
+
+      // mh: (self, StarlarkThread, args...) -> ?
+
       // Convert non-special arguments into single Object[] argument
       mh = mh.asSpreader(Object[].class, mh.type().parameterCount() - 2);
 
@@ -164,6 +172,141 @@ final class MethodDescriptor {
     }
 
     this.methodHandle = mh;
+  }
+
+  private MethodHandle processArguments(MethodHandle mh, ParamDescriptor[] parameters, int po) {
+    MethodType objectArgsMt = mh.type().dropParameterTypes(po, po + parameters.length)
+      .insertParameterTypes(po, IntStream.range(0, parameters.length).mapToObj(i -> Object.class).toArray(Class[]::new));
+    mh = MethodHandles.explicitCastArguments(mh, objectArgsMt);
+    for (int i = 0; i < parameters.length; i++) {
+      mh = processArgument(mh, parameters, po, i);
+    }
+    return mh;
+  }
+
+  private MethodHandle processArgument(MethodHandle mh, ParamDescriptor[] parameters, int po, int i) {
+    if (parameters[i].getDefaultValue() != null) {
+      return processArgumentsSetDefault(mh, parameters, po, i);
+    } else {
+      return processArgumentsCheckNotNull(mh, parameters, po, i);
+    }
+  }
+
+  private MethodHandle processArgumentsSetDefault(MethodHandle mh, ParamDescriptor[] parameters, int po, int i) {
+    return MethodHandles.guardWithTest(
+      argumentIsNull(mh.type(), po, i),
+      replaceArgumentWithDefault(mh, parameters, po, i),
+      checkArgType(mh, parameters, po, i)
+    );
+  }
+
+  private static MethodHandle replaceArgumentWithDefault(MethodHandle mh, ParamDescriptor[] parameters, int po, int i) {
+    Object defaultValue = parameters[i].getDefaultValue();
+    Preconditions.checkState(defaultValue != null);
+    MethodType mt = mh.type();
+    mh = MethodHandles.insertArguments(mh, po + i, defaultValue);
+    mh = MethodHandles.dropArguments(mh, po + i, mt.parameterType(po + i));
+    return mh;
+  }
+
+  private MethodHandle processArgumentsCheckNotNull(MethodHandle mh, ParamDescriptor[] parameters, int po, int i) {
+    return MethodHandles.guardWithTest(
+      argumentIsNull(mh.type(), po, i),
+      slowHandleIncorrectArgs(mh.type(), po),
+      checkArgType(mh, parameters, po, i)
+    );
+  }
+
+  private static MethodHandle argumentIsNull(MethodType mt, int po, int i) {
+    MethodHandle mh = MethodHandles.explicitCastArguments(IS_NULL, MethodType.methodType(boolean.class, mt.parameterType(po + i)));
+    return MethodHandles.dropArguments(mh, 0, Arrays.copyOf(mt.parameterArray(), po + i));
+  }
+
+  private static boolean isNull(Object o) {
+    return o == null;
+  }
+
+  private MethodHandle slowHandleIncorrectArgs(MethodType mt, int po) {
+    MethodHandle mh = MethodHandles.insertArguments(SLOW_HANDLE_INCORRECT_ARGS, 0, this);
+    mh = mh.asCollector(Object[].class, mt.parameterCount() - po);
+    mh = MethodHandles.dropArguments(mh, 0, Arrays.copyOf(mt.parameterArray(), po));
+    mh = MethodHandles.explicitCastArguments(mh, mt);
+    return mh;
+  }
+
+  private Object slowHandleIncorrectArgs(Object[] args) throws EvalException {
+    ArrayList<String> missingPositional = new ArrayList<>();
+    ArrayList<String> missingNamed = new ArrayList<>();
+    for (int i = 0; i < parameters.length; i++) {
+      ParamDescriptor param = parameters[i];
+      if (args[i] == null && param.getDefaultValue() == null && param.disabledByFlag() == null) {
+        if (param.isPositional()) {
+          missingPositional.add(param.getName());
+        } else if (param.isNamed()) {
+          missingNamed.add(param.getName());
+        } else {
+          throw new IllegalStateException();
+        }
+      }
+    }
+    if (!missingPositional.isEmpty()) {
+      throw Starlark.errorf("%s() missing %d required positional argument%s: %s", name, missingPositional.size(), plural(missingPositional.size()), Joiner.on(", ").join(missingPositional));
+    } else if (!missingNamed.isEmpty()) {
+      throw Starlark.errorf("%s() missing %d required named argument%s: %s", name, missingNamed.size(), plural(missingNamed.size()), Joiner.on(", ").join(missingNamed));
+    } else {
+      throw new IllegalStateException();
+    }
+  }
+
+  private static String plural(int n) {
+    return n == 1 ? "" : "s";
+  }
+
+  private MethodHandle checkArgType(MethodHandle mh, ParamDescriptor[] parameters, int po, int i) {
+    mh = checkArgTypeClasses(mh, parameters, po, i);
+    return mh;
+  }
+
+  private MethodHandle checkArgTypeClasses(MethodHandle mh, ParamDescriptor[] parameters, int po, int i) {
+    if (parameters[i].getAllowedClasses().contains(Object.class)) {
+      return mh;
+    }
+
+    MethodHandle test = testIsAnyOf(parameters[i].getAllowedClasses());
+    test = dropArgumentsAndCast(test, mh.type().changeReturnType(boolean.class), po + i);
+
+    return MethodHandles.guardWithTest(test,
+      mh,
+      throwWrongParameterType(mh.type(), parameters, po, i));
+  }
+
+  private static MethodHandle testIsAnyOf(List<Class<?>> classes) {
+    if (classes.isEmpty()) {
+      throw new IllegalStateException("empty list of classes");
+    } else if (classes.size() == 1) {
+      return IS_INSTANCE.bindTo(classes.get(0));
+    } else {
+      return MethodHandles.guardWithTest(
+        IS_INSTANCE.bindTo(classes.get(0)),
+        MethodHandles.dropArguments(MethodHandles.constant(boolean.class, true), 0, Object.class),
+        testIsAnyOf(classes.subList(1, classes.size()))
+      );
+    }
+  }
+
+  private static boolean isNone(Object o) {
+    return o == Starlark.NONE;
+  }
+
+  private Object throwWrongParameterType(ParamDescriptor param, Object value) throws EvalException {
+    throw Starlark.errorf(
+          "in call to %s(), parameter '%s' got value of type '%s', want '%s'",
+          name, param.getName(), Starlark.type(value), param.getTypeErrorMessage());
+  }
+
+  private MethodHandle throwWrongParameterType(MethodType mt, ParamDescriptor[] parameters, int po, int i) {
+    MethodHandle mh = MethodHandles.insertArguments(THROW_WRONG_PARAMETER_TYPE, 0, this, parameters[i]);
+    return dropArgumentsAndCast(mh, mt, po + i);
   }
 
   /**
@@ -282,6 +425,11 @@ final class MethodDescriptor {
   private static final MethodHandle THREAD_GET_MUTABILITY;
   private static final MethodHandle STARLARK_INT_OF_INT;
   private static final MethodHandle STARLARK_INT_OF_LONG;
+  private static final MethodHandle IS_NULL;
+  private static final MethodHandle IS_NONE;
+  private static final MethodHandle SLOW_HANDLE_INCORRECT_ARGS;
+  private static final MethodHandle IS_INSTANCE;
+  private static final MethodHandle THROW_WRONG_PARAMETER_TYPE;
 
   static {
     try {
@@ -307,6 +455,16 @@ final class MethodDescriptor {
       THREAD_GET_MUTABILITY =
           LOOKUP.findVirtual(
               StarlarkThread.class, "mutability", MethodType.methodType(Mutability.class));
+      IS_NULL =
+        LOOKUP.findStatic(MethodDescriptor.class, "isNull", MethodType.methodType(boolean.class, Object.class));
+      IS_NONE =
+        LOOKUP.findStatic(MethodDescriptor.class, "isNone", MethodType.methodType(boolean.class, Object.class));
+      SLOW_HANDLE_INCORRECT_ARGS =
+        LOOKUP.findVirtual(MethodDescriptor.class, "slowHandleIncorrectArgs", MethodType.methodType(Object.class, Object[].class));
+      IS_INSTANCE =
+        LOOKUP.findVirtual(Class.class, "isInstance", MethodType.methodType(boolean.class, Object.class));
+      THROW_WRONG_PARAMETER_TYPE =
+        LOOKUP.findVirtual(MethodDescriptor.class, "throwWrongParameterType", MethodType.methodType(Object.class, ParamDescriptor.class, Object.class));
     } catch (NoSuchMethodException | IllegalAccessException e) {
       throw new RuntimeException(e);
     }
@@ -338,6 +496,15 @@ final class MethodDescriptor {
             .dropParameterTypes(oldPos, oldPos + 1)
             .insertParameterTypes(newPos, mh.type().parameterType(oldPos)),
         reorder);
+  }
+
+  private static MethodHandle dropArgumentsAndCast(MethodHandle mh, MethodType mt, int i) {
+    Preconditions.checkState(mh.type().parameterCount() == 1);
+    mh = MethodHandles.explicitCastArguments(mh, MethodType.methodType(mt.returnType(), mt.parameterType(i)));
+    mh = MethodHandles.dropArguments(mh, 1, mt.dropParameterTypes(0, i + 1).parameterArray());
+    mh = MethodHandles.dropArguments(mh, 0, mt.dropParameterTypes(i, mt.parameterCount()).parameterArray());
+    Preconditions.checkState(mh.type().equals(mt), "%s != %s", mh.type(), mt);
+    return mh;
   }
 
   /** Returns the StarlarkMethod annotation corresponding to this method. */
