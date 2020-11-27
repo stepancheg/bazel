@@ -117,7 +117,14 @@ public class Printer {
       return this.append((String) o);
 
     } else if (o instanceof StarlarkValue) {
-      ((StarlarkValue) o).str(this);
+      if (!push(o)) {
+        return append("...");
+      }
+      try {
+        ((StarlarkValue) o).str(this);
+      } finally{
+        pop();
+      }
       return this;
 
     } else {
@@ -170,7 +177,14 @@ public class Printer {
     // compound values (may form cycles in the object graph)
 
     if (!push(o)) {
-      return this.append("..."); // elided cycle
+      // elided cycle
+      if (o instanceof StarlarkList) {
+        return this.append("[...]");
+      } else if (o instanceof Dict) {
+        return this.append("{...}");
+      } else {
+        return this.append("...");
+      }
     }
     try {
       if (o instanceof StarlarkValue) {
