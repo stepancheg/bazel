@@ -136,6 +136,14 @@ public final class StarlarkFlagGuardingTest {
         StarlarkInt a, boolean b, StarlarkInt c, StarlarkThread thread) {
       return "keywords_multiple_flags(" + a + ", " + b + ", " + c + ")";
     }
+
+    @StarlarkMethod(
+        name = "method_enabled_with_flag",
+        documented = false,
+        enableOnlyWithFlag = EXPERIMENTAL_FLAG)
+    public String methodEnabledWithFlag() {
+      return "m";
+    }
   }
 
   @Test
@@ -313,5 +321,20 @@ public final class StarlarkFlagGuardingTest {
     ev.new Scenario(FLAG2_TRUE)
         .setUp("GlobalSymbol = 'other'", "var = GlobalSymbol")
         .testLookup("var", "other");
+  }
+
+  @Test
+  public void testMethodEnabledDisabled() throws Exception {
+    ev = new EvaluationTestCase() {
+      @Override
+      protected Object newModuleHook(ImmutableMap.Builder<String, Object> predeclared) {
+        // `method_enabled_with_flag` is added to predeclared
+        Starlark.addMethods(predeclared, new Mock(), FLAG1_TRUE);
+        return null;
+      }
+    };
+    ev.new Scenario(FLAG1_FALSE)
+        // method is not available per thread semantics
+        .testIfErrorContains("disabled", "method_enabled_with_flag()");
   }
 }
